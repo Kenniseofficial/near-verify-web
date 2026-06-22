@@ -1,0 +1,14 @@
+{
+  "name": "near-discord-bot",
+  "version": "1.0.0",
+  "description": "NEAR Wallet Role Verification Bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}
