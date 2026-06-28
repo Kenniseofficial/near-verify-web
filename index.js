@@ -1,92 +1,106 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
-const express = require('express');
-require('dotenv').config();
+import React, { useState, useEffect } from 'react';
 
-const client = new Client({ 
-    intents: [
-        GatewayIntentBits.Guilds, 
-        GatewayIntentBits.GuildMembers, 
-        GatewayIntentBits.GuildMessages, 
-        GatewayIntentBits.MessageContent
-    ]
-});
+export default function VerifyPage() {
+    const [discordId, setDiscordId] = useState('');
+    const [walletAddress, setWalletAddress] = useState('');
+    const [status, setStatus] = useState('');
 
-const ROLE_NAME = "ForestNEARian"; 
-const VERCEL_URL = "https://near-verify-web.vercel.app/"; 
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const id = urlParams.get('discord_id');
+        if (id) setDiscordId(id);
+    }, []);
 
-client.once('ready', () => {
-    console.log(`🎉 Success! Bot logged in as ${client.user.tag}!`);
-    console.log(`📊 Connected to ${client.guilds.cache.size} Discord servers.`);
-});
+    const handleVerify = async () => {
+        if (!discordId || !walletAddress) {
+            setStatus('❌ Please provide both your Discord ID and NEAR Wallet Address.');
+            return;
+        }
 
-client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
-    if (message.content.trim() === '!setup') {
+        setStatus('🔄 Checking NFT balance and updating database...');
+
         try {
-            const embed = new EmbedBuilder()
-                .setTitle("🔒 NFT Wallet Verification")
-                .setDescription("Click the button below to link your NEAR wallet and unlock your exclusive holder role!")
-                .setColor("#00ec5b");
-
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setLabel("Verify Wallet")
-                    .setStyle(ButtonStyle.Link)
-                    .setURL(VERCEL_URL)
-            );
-
-            await message.channel.send({ embeds: [embed], components: [row] });
-            console.log("📤 Sent verification card successfully!");
-        } catch (error) {
-            console.error("❌ Failed to send message:", error);
-        }
-    }
-});
-
-const app = express();
-app.use(express.json());
-app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*");
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-    next();
-});
-
-app.post('/verify', async (req, res) => {
-    const { discordId, hasNft } = req.body;
-    if (!discordId || !hasNft) return res.status(400).json({ error: "Missing parameters" });
-
-    console.log(`\n=== 📡 Incoming Verification Request ===`);
-    console.log(`Target User ID: ${discordId}`);
-    console.log(`Bot is currently sitting in ${client.guilds.cache.size} servers.`);
-
-    try {
-        let memberFound = false;
-        for (const guild of client.guilds.cache.values()) {
-            console.log(`Checking Server: "${guild.name}" (${guild.id})`);
-            try {
-                const member = await guild.members.fetch(discordId);
-                if (member) {
-                    console.log(`🎯 User matched inside server: ${member.user.tag}`);
-                    let role = guild.roles.cache.find(r => r.name === ROLE_NAME);
-                    if (!role) {
-                        role = await guild.roles.create({ name: ROLE_NAME, color: '#00ec5b' });
-                        console.log(`✨ Created new role: ${ROLE_NAME}`);
+            const argsBase64 = btoa(JSON.stringify({ account_id: walletAddress }));
+            const rpcResponse = await fetch('https://rpc.mainnet.near.org', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: 'dontcare',
+                    method: 'query',
+                    params: {
+                        request_type: 'call_function',
+                        finality: 'final',
+                        account_id: 'asac.near',
+                        method_name: 'nft_supply_for_owner',
+                        args_base64: argsBase64
                     }
-                    await member.roles.add(role);
-                    console.log(`✅ Successfully assigned role to user!`);
-                    memberFound = true;
-                }
-            } catch (fetchError) {
-                console.error(`❌ Discord API rejected lookup in "${guild.name}":`, fetchError.message);
-            }
-        }
-        if (memberFound) return res.json({ success: true });
-        return res.status(444).json({ error: "User not found" });
-    } catch (err) {
-        console.error("❌ Global server error:", err);
-        return res.status(500).json({ error: "Server error" });
-    }
-});
+                })
+            });
 
-app.listen(3000, () => console.log("📡 Webserver online on port 3000"));
-client.login(process.env.DISCORD_TOKEN);
+            const rpcData = await rpcResponse.json();
+            let hasNft = false;
+
+            if (rpcData.result && rpcData.result.result) {
+                const balanceString = JSON.parse(String.fromCharCode(...rpcData.result.result));
+                if (parseInt(balanceString) > 0) {
+                    hasNft = true;
+                }
+            }
+
+            if (!hasNft) {
+                setStatus('❌ Verification failed: You do not own the required NFT.');
+                return;
+            }
+
+            const backendUrl = 'https://near-bot-backend.onrender.com/verify'; 
+
+            const response = await fetch(backendUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    discordId: discordId,
+                    walletAddress: walletAddress,
+                    hasNft: true
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                setStatus('🎉 Success! Your role has been assigned and saved to the database.');
+            } else {
+                setStatus(`❌ Error: ${data.error || 'Failed to sync with server.'}`);
+            }
+
+        } catch (error) {
+            console.error(error);
+            setStatus('❌ Network error connecting to verification services.');
+        }
+    };
+
+    return (
+        <div style={{ padding: '40px', fontFamily: 'sans-serif', maxWidth: '400px', margin: 'auto', textAlign: 'center' }}>
+            <h2>🔒 Link Your Wallet</h2>
+            <p>Enter your details below to claim your Discord role.</p>
+            <input 
+                type="text" 
+                placeholder="Discord User ID" 
+                value={discordId} 
+                onChange={(e) => setDiscordId(e.target.value)} 
+                style={{ width: '100%', padding: '10px', marginBottom: '10px' }}
+            />
+            <input 
+                type="text" 
+                placeholder="NEAR Wallet Address (e.g., user.near)" 
+                value={walletAddress} 
+                onChange={(e) => setWalletAddress(e.target.value)} 
+                style={{ width: '100%', padding: '10px', marginBottom: '20px' }}
+            />
+            <button onClick={handleVerify} style={{ padding: '10px 20px', backgroundColor: '#00ec5b', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>
+                Verify & Assign Role
+            </button>
+            <p style={{ marginTop: '20px', fontWeight: 'bold' }}>{status}</p>
+        </div>
+    );
+}
