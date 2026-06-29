@@ -34,8 +34,9 @@ function VerifyPage() {
             method_name: 'nft_supply_for_owner',
             args_base64: argsBase64
           }
-        }
+        })
       });
+      
       const rpcData = await rpcResponse.json();
       let hasNft = false;
       if (rpcData.result && rpcData.result.result) {
@@ -92,7 +93,6 @@ function VerifyPage() {
   );
 }
 
-// Attach the interface to the HTML DOM container so it draws on the screen!
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <VerifyPage />
