@@ -17,9 +17,11 @@ function VerifyPage() {
       setStatus('Please provide both details.');
       return;
     }
-    setStatus('Checking...');
+    setStatus('Checking NEAR Blockchain...');
     try {
-      const argsBase64 = btoa(JSON.stringify({ account_id: walletAddress }));
+      // Format standard stringified arguments
+      const argsBase64 = btoa(JSON.stringify({ account_id: walletAddress.trim() }));
+      
       const rpcResponse = await fetch('https://rpc.mainnet.near.org', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -38,30 +40,47 @@ function VerifyPage() {
       });
       
       const rpcData = await rpcResponse.json();
-      let hasNft = false;
-      if (rpcData.result && rpcData.result.result) {
-        const balanceString = JSON.parse(String.fromCharCode(...rpcData.result.result));
-        if (parseInt(balanceString) > 0) hasNft = true;
-      }
-
-      if (!hasNft) {
-        setStatus('Failed: No NFT owned.');
+      
+      // Handle explicit RPC Errors
+      if (rpcData.error) {
+        setStatus(`RPC Server Error: ${rpcData.error.message || JSON.stringify(rpcData.error)}`);
         return;
       }
+
+      let hasNft = false;
+      if (rpcData.result && rpcData.result.result) {
+        const bytesToText = String.fromCharCode(...rpcData.result.result);
+        // Stripping quotes if present from raw JSON string response
+        const balanceString = bytesToText.replace(/['"]+/g, ''); 
+        const count = parseInt(balanceString, 10);
+        
+        if (!isNaN(count) && count > 0) {
+          hasNft = true;
+        } else {
+          setStatus(`Failed: Contract reports ${balanceString} NFTs owned.`);
+          return;
+        }
+      } else {
+        setStatus('Failed: Invalid response structure from contract.');
+        return;
+      }
+
+      setStatus('NFT Found! Syncing with backend...');
 
       const response = await fetch('https://near-bot-backend.onrender.com/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ discordId, walletAddress, hasNft: true })
+        body: JSON.stringify({ discordId, walletAddress: walletAddress.trim(), hasNft: true })
       });
 
       if (response.ok) {
-        setStatus('Success! Verified.');
+        setStatus('Success! Wallet verified and Discord role assigned.');
       } else {
-        setStatus('Sync error.');
+        const errText = await response.text();
+        setStatus(`Sync error with backend: ${errText}`);
       }
     } catch (e) {
-      setStatus('Network error.');
+      setStatus(`Network/Parsing Error: ${e.message}`);
     }
   };
 
@@ -77,7 +96,7 @@ function VerifyPage() {
       />
       <input 
         type="text" 
-        placeholder="NEAR Address" 
+        placeholder="NEAR Address (e.g. name.near)" 
         value={walletAddress} 
         onChange={e => setWalletAddress(e.target.value)} 
         style={{ display: 'block', margin: '10px auto', padding: '12px', width: '80%', maxWidth: '300px', borderRadius: '6px', border: '1px solid #333', backgroundColor: '#222', color: '#fff' }} 
@@ -88,7 +107,7 @@ function VerifyPage() {
       >
         Verify Now
       </button>
-      <p style={{ marginTop: '20px', fontSize: '14px', color: '#aaa' }}>{status}</p>
+      <p style={{ marginTop: '20px', fontSize: '15px', color: '#aaa', padding: '0 10px', wordBreak: 'break-all' }}>{status}</p>
     </div>
   );
 }
