@@ -19,17 +19,17 @@ function VerifyPage() {
     }
     
     const walletClean = walletAddress.trim();
-    setStatus('Sending activity to backend...');
+    setStatus('Sending incoming log to Render...');
 
-    // 1. Force an instant log to your Render backend right away!
+    // 1. Instant traffic log to backend before checking blockchain
     try {
       await fetch('https://near-bot-backend.onrender.com/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ discordId, walletAddress: walletClean, logOnly: true })
+        body: JSON.stringify({ discordId, walletAddress: walletClean, hasNft: false })
       });
     } catch(err) {
-      console.log("Initial log ping skipped");
+      console.log("Initial ping log skipped.");
     }
 
     setStatus('Checking NEAR Blockchain...');
@@ -46,7 +46,7 @@ function VerifyPage() {
           params: {
             request_type: 'call_function',
             finality: 'final',
-            account_id: 'asac.near',
+            account_id: 'ofp_collection.nfts.tg', // Your verified collection contract
             method_name: 'nft_supply_for_owner',
             args_base64: argsBase64
           }
@@ -55,41 +55,31 @@ function VerifyPage() {
       
       const rpcData = await rpcResponse.json();
       
-      let hasNft = false;
       if (rpcData.result && rpcData.result.result) {
         const bytesToText = String.fromCharCode(...rpcData.result.result);
         const balanceString = bytesToText.replace(/['"]+/g, ''); 
         const count = parseInt(balanceString, 10);
         
         if (!isNaN(count) && count > 0) {
-          hasNft = true;
-        } else {
-          setStatus(`Failed: Contract reports ${balanceString} NFTs owned.`);
-          // Send failure log to render before exiting
-          await fetch('https://near-bot-backend.onrender.com/verify', {
+          setStatus('NFT Found! Upgrading your role...');
+
+          // 2. Success request to grant the Discord role
+          const response = await fetch('https://near-bot-backend.onrender.com/verify', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ discordId, walletAddress: walletClean, hasNft: false })
+            body: JSON.stringify({ discordId, walletAddress: walletClean, hasNft: true })
           });
-          return;
+
+          if (response.ok) {
+            setStatus('Success! Wallet verified and Discord role assigned.');
+          } else {
+            setStatus('Backend verified the NFT, but failed to assign role.');
+          }
+        } else {
+          setStatus(`Failed: Contract reports 0 NFTs owned for this collection.`);
         }
       } else {
-        setStatus('Failed: Invalid response from NEAR RPC.');
-        return;
-      }
-
-      setStatus('NFT Found! Assigning your Discord role...');
-
-      const response = await fetch('https://near-bot-backend.onrender.com/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ discordId, walletAddress: walletClean, hasNft: true })
-      });
-
-      if (response.ok) {
-        setStatus('Success! Verified.');
-      } else {
-        setStatus('Backend sync failed.');
+        setStatus('Failed: Unexpected response from NEAR contract.');
       }
     } catch (e) {
       setStatus(`Error: ${e.message}`);
@@ -119,7 +109,7 @@ function VerifyPage() {
       >
         Verify Now
       </button>
-      <p style={{ marginTop: '20px', fontSize: '14px', color: '#aaa' }}>{status}</p>
+      <p style={{ marginTop: '20px', fontSize: '15px', color: '#aaa' }}>{status}</p>
     </div>
   );
 }
