@@ -19,7 +19,7 @@ function VerifyPage() {
     }
     
     const walletClean = walletAddress.trim();
-    setStatus('Sending incoming log to Render...');
+    setStatus('Initializing verification connection...');
 
     // 1. Instant traffic log to backend before checking blockchain
     try {
@@ -73,7 +73,8 @@ function VerifyPage() {
           if (response.ok) {
             setStatus('Success! Wallet verified and Discord role assigned.');
           } else {
-            setStatus('Backend verified the NFT, but failed to assign role.');
+            const errorData = await response.json().catch(() => ({}));
+            setStatus(errorData.error || 'Backend verified the NFT, but failed to assign role.');
           }
         } else {
           setStatus(`Failed: Contract reports 0 NFTs owned for this collection.`);
